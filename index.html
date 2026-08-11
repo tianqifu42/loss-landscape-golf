@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Loss Landscape Golf — 损失地形高尔夫</title>
+<meta name="description" content="You are the optimizer. Sink the ball into the global minimum in as few steps as possible.">
+<style>
+  :root{
+    --bg:#0b1020;
+    --ink:#e8edf7;
+    --muted:#8b97b4;
+    --accent:#5ee0c0;
+    --accent2:#ffb454;
+    --danger:#ff6b7a;
+    --panel:rgba(14,20,38,.92);
+    --line:rgba(255,255,255,.10);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font:15px/1.5 "Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    overflow:hidden;
+    user-select:none;
+  }
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+  header{
+    display:flex;align-items:center;gap:14px;
+    padding:10px 16px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(255,255,255,.05),transparent);
+    flex:0 0 auto;
+  }
+  .brand{font:600 17px/1 Georgia,"Times New Roman",serif;letter-spacing:.2px;white-space:nowrap}
+  .brand span{color:var(--accent)}
+  .stat{display:flex;flex-direction:column;gap:2px;min-width:64px}
+  .stat b{font:600 16px/1 ui-monospace,SFMono-Regular,Menlo,monospace}
+  .stat i{font-style:normal;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .grow{flex:1}
+  button{
+    font:inherit;color:var(--ink);background:rgba(255,255,255,.06);
+    border:1px solid var(--line);border-radius:9px;padding:7px 13px;cursor:pointer;
+    transition:.15s background,.15s border-color,.15s transform;
+  }
+  button:hover{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.25)}
+  button:active{transform:translateY(1px)}
+  button.primary{background:var(--accent);color:#04241d;border-color:transparent;font-weight:700}
+  button.primary:hover{background:#7ff0d2}
+  #stage{position:relative;flex:1;min-height:0}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  .hint{
+    position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+    color:var(--muted);font-size:13px;background:rgba(8,12,24,.6);
+    padding:6px 14px;border-radius:20px;border:1px solid var(--line);
+    pointer-events:none;white-space:nowrap;
+  }
+  .overlay{
+    position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(6,9,20,.78);backdrop-filter:blur(6px);z-index:5;padding:18px;
+  }
+  .overlay.on{display:flex}
+  .card{
+    width:min(620px,100%);max-height:92%;overflow:auto;background:var(--panel);
+    border:1px solid var(--line);border-radius:18px;padding:26px 28px;
+    box-shadow:0 30px 80px rgba(0,0,0,.55);
+  }
+  .card h2{margin:0 0 6px;font:600 26px/1.2 Georgia,serif}
+  .card h3{margin:20px 0 8px;font:600 14px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+  .card p{margin:8px 0;color:#c6cfe4}
+  .card ul{margin:8px 0;padding-left:18px;color:#c6cfe4}
+  .card li{margin:5px 0}
+  .row{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+  .lv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:14px}
+  .lv{
+    text-align:left;padding:12px 14px;border-radius:12px;line-height:1.35;
+    background:rgba(255,255,255,.05);border:1px solid var(--line);cursor:pointer;
+  }
+  .lv:hover{background:rgba(255,255,255,.12)}
+  .lv .n{font:600 10px/1 ui-monospace,monospace;letter-spacing:.16em;color:var(--muted)}
+  .lv .t{display:block;margin-top:5px;font-weight:600}
+  .lv .s{display:block;margin-top:4px;font-size:12px;color:var(--accent2)}
+  .lv.locked{opacity:.42;cursor:not-allowed}
+  .stars{font-size:30px;letter-spacing:6px;color:var(--accent2);margin:10px 0 2px}
+  .stars .off{color:rgba(255,255,255,.16)}
+  kbd{
+    font:600 12px/1 ui-monospace,monospace;background:rgba(255,255,255,.1);
+    border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:2px 6px;
+  }
+  .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--accent);border:1px solid rgba(94,224,192,.35);border-radius:99px;padding:3px 9px;margin-bottom:10px}
+  @media (max-width:640px){
+    .brand{font-size:14px}
+    header{gap:9px;padding:8px 10px}
+    .stat{min-width:48px}
+    .stat b{font-size:14px}
+    button{padding:6px 10px;font-size:13px}
+    .hint{font-size:11px;bottom:8px}
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <div class="brand">Loss Landscape <span>Golf</span></div>
+    <div class="stat"><b id="hLevel">1/6</b><i>Level</i></div>
+    <div class="stat"><b id="hSteps">0 / 2</b><i>Steps / Par</i></div>
+    <div class="stat"><b id="hLoss">—</b><i>Loss</i></div>
+    <div class="stat"><b id="hBest">—</b><i>Best</i></div>
+    <div class="grow"></div>
+    <button id="bRestart">重来</button>
+    <button id="bLevels">关卡</button>
+    <button id="bHelp">玩法</button>
+  </header>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint">拖拽小球蓄力后松开发射 · 或按住 <b>←</b> / <b>→</b> 蓄力，松开发射</div>
+
+    <div class="overlay on" id="ovHelp">
+      <div class="card">
+        <div class="tag">You are the optimizer</div>
+        <h2>损失地形高尔夫</h2>
+        <p>屏幕上的曲线是一个<b>损失函数</b>。小球是参数，你是优化器。目标：用尽量少的步数（step）把小球送进 <b style="color:var(--accent2)">全局最小值</b> 的旗子里，并让它停下来。</p>
+        <h3>操作</h3>
+        <ul>
+          <li>鼠标/手指从小球往反方向拖拽，像弹弓一样蓄力，松开发射。</li>
+          <li>或按住 <kbd>←</kbd> <kbd>→</kbd> 蓄力，松手发射；<kbd>R</kbd> 重来。</li>
+          <li>蓄力大小就是这一步的 <b>learning rate</b>：太小翻不过山脊，太大冲过头。</li>
+        </ul>
+        <h3>地形机关</h3>
+        <ul>
+          <li><b style="color:#f0c987">鞍点沙地</b>：梯度几乎消失，摩擦极大，小球陷进去就寸步难行。</li>
+          <li><b style="color:#8fd8ff">冰面</b>：几乎没有阻尼，小球会来回震荡很久（学习率过大的滋味）。</li>
+          <li><b style="color:var(--danger)">局部最小值</b>：看起来舒服，但不是答案。得靠动量冲出去。</li>
+        </ul>
+        <div class="row">
+          <button class="primary" id="bStart">开始游戏</button>
+          <button id="bHelpClose">关闭</button>
+          <a href="https://github.com/tianqifu380/loss-landscape-golf" target="_blank" rel="noopener"
+             style="align-self:center;margin-left:auto;color:var(--muted);font-size:13px;text-decoration:none">源码 on GitHub ↗</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovLevels">
+      <div class="card">
+        <h2>选择关卡</h2>
+        <p>每关的 par 是"标准步数"，越少步数星星越多。</p>
+        <div class="lv-grid" id="lvGrid"></div>
+        <div class="row"><button id="bLevelsClose">返回</button></div>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovWin">
+      <div class="card" style="text-align:center">
+        <h2 id="winTitle">收敛！</h2>
+        <div class="stars" id="winStars">★★★</div>
+        <p id="winMsg">用 2 步到达全局最小值。</p>
+        <div class="row" style="justify-content:center">
+          <button class="primary" id="bNext">下一关</button>
+          <button id="bRetry">再来一次</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+"use strict";
+/* ============================================================
+   Loss Landscape Golf — you are the optimizer.
+   World: 1000 x 440 units, y is "altitude" (= loss), y up.
+   ============================================================ */
+const W = 1000, H = 440;
+const G = 400;                 // gravity
+const MAXP = 520;              // max shot impulse (a.k.a. max learning rate)
+const DAMP = {normal:0.7, sand:1.9, ice:0.25};
+const REST_V = 9, REST_T = 0.28;
+const ANNEAL_AFTER = 2.4, ANNEAL_RATE = 2.2, HARD_STOP = 7.5;
+
+const LEVELS = [
+  { name:"Warm-up", sub:"先感受一下梯度", par:2, start:110, base:330, tilt:0,
+    wells:[{c:300,a:-95,s:78},{c:660,a:-215,s:88},{c:915,a:-120,s:62}], ripple:0, zones:[] },
+
+  { name:"Local Minima", sub:"三个坑，只有一个对", par:3, start:80, base:330, tilt:0,
+    wells:[{c:200,a:-118,s:58},{c:455,a:-165,s:66},{c:705,a:-252,s:78},{c:920,a:-140,s:58}],
+    ripple:0, zones:[] },
+
+  { name:"Saddle Sand", sub:"冲过梯度消失的平原", par:3, start:115, base:318, tilt:0,
+    wells:[{c:205,a:-140,s:56},{c:700,a:-246,s:74},{c:920,a:-150,s:58}], ripple:0,
+    zones:[{x0:430,x1:565,type:"sand"}] },
+
+  { name:"Ice Rink", sub:"学习率过大的滋味", par:3, start:95, base:330, tilt:0,
+    wells:[{c:170,a:-105,s:50},{c:400,a:-172,s:60},{c:770,a:-256,s:70},{c:945,a:-125,s:48}],
+    ripple:0, zones:[{x0:480,x1:700,type:"ice"}] },
+
+  { name:"Noisy Gradients", sub:"到处都是小坑", par:3, start:80, base:315, tilt:0,
+    wells:[{c:200,a:-130,s:58},{c:520,a:-112,s:66},{c:780,a:-250,s:78},{c:945,a:-140,s:52}],
+    ripple:17, zones:[] },
+
+  { name:"The Boss", sub:"沙、冰、噪声与假最优", par:4, start:60, base:320, tilt:0,
+    wells:[{c:165,a:-112,s:48},{c:430,a:-236,s:60},{c:640,a:-150,s:52},{c:840,a:-268,s:66},{c:960,a:-130,s:44}],
+    ripple:12, zones:[{x0:270,x1:370,type:"sand"},{x0:560,x1:750,type:"ice"}] },
+];
+
+/* ---------- terrain ---------- */
+function heightAt(L, x){
+  let h = L.base + L.tilt * (x / W);
+  for (const w of L.wells){
+    const d = x - w.c;
+    h += w.a * Math.exp(-(d*d) / (2*w.s*w.s));
+  }
+  if (L.ripple) h += L.ripple * Math.sin(x/26) * 0.7 + L.ripple*0.45*Math.sin(x/11+1.3);
+  return h;
+}
+function slopeAt(L, x){
+  const e = 0.6;
+  return (heightAt(L, x+e) - heightAt(L, x-e)) / (2*e);
+}
+function zoneAt(L, x){
+  for (const z of L.zones) if (x >= z.x0 && x <= z.x1) return z.type;
+  return "normal";
+}
+function findLocalMins(L, gx){
+  const out = [];
+  for (let x = 20; x <= W-20; x += 1){
+    const a = slopeAt(L, x-1), b = slopeAt(L, x+1);
+    if (a < 0 && b > 0){
+      if (Math.abs(x - gx) > 45 && !out.some(o => Math.abs(o.x - x) < 40))
+        out.push({x, h: heightAt(L, x)});
+    }
+  }
+  return out;
+}
+function findGlobalMin(L){
+  let bx = 0, bh = Infinity;
+  for (let x = 6; x <= W-6; x += 0.5){
+    const h = heightAt(L, x);
+    if (h < bh){ bh = h; bx = x; }
+  }
+  return {x:bx, h:bh};
+}
+
+/* ---------- safe storage (private mode / sandboxed iframes) ---------- */
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v === null ? d : v; }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+};
+
+/* ---------- sound ---------- */
+let AC = null;
+function beep(freq, dur, type, vol){
+  if (!S || !S.sound) return;
+  try{
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol || .05, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(.0001, AC.currentTime + dur);
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime + dur);
+  }catch(e){}
+}
+
+/* ---------- game state ---------- */
+const S = {
+  li: 0, L: null, goal: null,
+  x: 0, v: 0, steps: 0,
+  moving: false, restT: 0, done: false,
+  trail: [], sparks: [],
+  charge: 0, chargeDir: 1, charging: false, chargeSrc: null,
+  aimX: 0, aimY: 0,
+  best: (()=>{ try{ return JSON.parse(store.get("llg_best","{}")); }catch(e){ return {}; } })(),
+  unlocked: +(store.get("llg_unlocked","0")) || 0,
+  t: 0, shake: 0, shotT: 0, locals: [], banner: 0, sound: true
+};
+
+function loadLevel(i){
+  S.li = i;
+  S.L = LEVELS[i];
+  S.goal = findGlobalMin(S.L);
+  S.locals = findLocalMins(S.L, S.goal.x);
+  S.banner = 2.6;
+  S.x = S.L.start;
+  S.v = 0;
+  S.steps = 0;
+  S.moving = false;
+  S.restT = 0;
+  S.done = false;
+  S.trail = [];
+  S.sparks = [];
+  S.charge = 0;
+  S.charging = false;
+  S.shotT = 0;
+  hideAll();
+  syncHUD();
+  try{ history.replaceState(null, "", "#lv=" + (i+1)); }catch(e){}
+}
+
+function shoot(power, dir){
+  if (S.done || S.moving) return;
+  S.v += power * dir;
+  S.steps++;
+  S.moving = true;
+  S.restT = 0;
+  S.shotT = 0;
+  S.shake = Math.min(9, power/70);
+  beep(180 + power*0.9, .16, "triangle", .07);
+  for (let i=0;i<14;i++){
+    S.sparks.push({x:S.x, y:heightAt(S.L,S.x), vx:-dir*(40+Math.random()*140),
+      vy:Math.random()*130, life:.5+Math.random()*.35, c:"#5ee0c0"});
+  }
+  syncHUD();
+}
+
+/* ---------- physics ---------- */
+function step(dt){
+  S.t += dt;
+  if (S.banner > 0) S.banner -= dt;
+  if (S.shake > 0) S.shake = Math.max(0, S.shake - dt*22);
+
+  for (let i=S.sparks.length-1;i>=0;i--){
+    const p = S.sparks[i];
+    p.life -= dt; p.x += p.vx*dt; p.y += p.vy*dt; p.vy -= 320*dt;
+    if (p.life <= 0) S.sparks.splice(i,1);
+  }
+  if (!S.moving || S.done) return;
+
+  const L = S.L, sub = 4, h = dt/sub;
+  S.shotT += dt;
+  const anneal = 1 + Math.max(0, S.shotT - ANNEAL_AFTER) * ANNEAL_RATE;
+  for (let k=0;k<sub;k++){
+    const m = slopeAt(L, S.x);
+    const inv = 1/Math.sqrt(1+m*m);
+    const sinT = m*inv, cosT = inv;
+    const damp = DAMP[zoneAt(L, S.x)];
+    const a = -G*sinT - damp*anneal*S.v;
+    S.v += a*h;
+    S.x += S.v*cosT*h;
+    if (S.x < 10){ S.x = 10; S.v = Math.abs(S.v)*0.35; }
+    if (S.x > W-10){ S.x = W-10; S.v = -Math.abs(S.v)*0.35; }
+  }
+
+  S.trail.push({x:S.x, y:heightAt(L,S.x), a:1});
+  if (S.trail.length > 220) S.trail.shift();
+  for (const p of S.trail) p.a -= dt*0.5;
+
+  const slow = (Math.abs(S.v) < REST_V && Math.abs(slopeAt(L,S.x)) < 0.05) || S.shotT > HARD_STOP;
+  S.restT = slow ? S.restT + dt : 0;
+  if (S.restT > REST_T){
+    S.moving = false;
+    S.v = 0;
+    if (Math.abs(S.x - S.goal.x) < 42) win();
+  }
+  syncHUD();
+}
+/* ---------- canvas & camera ---------- */
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let CW = 0, CH = 0, SC = 1, OX = 0;
+
+function resize(){
+  const r = cv.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(r.width*dpr);
+  cv.height = Math.round(r.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  CW = r.width; CH = r.height;
+  SC = Math.min(CW/W, CH/H);
+  OX = (CW - W*SC)/2;
+}
+const sx = x => OX + x*SC;
+const sy = y => CH - y*SC;
+
+/* ---------- drawing ---------- */
+function drawSky(){
+  const g = ctx.createLinearGradient(0,0,0,CH);
+  g.addColorStop(0,"#0a0f22"); g.addColorStop(.55,"#111a35"); g.addColorStop(1,"#16214a");
+  ctx.fillStyle = g; ctx.fillRect(0,0,CW,CH);
+  // faint contour grid
+  ctx.strokeStyle = "rgba(255,255,255,.035)"; ctx.lineWidth = 1;
+  for (let y=0; y<=H; y+=40){ ctx.beginPath(); ctx.moveTo(0,sy(y)); ctx.lineTo(CW,sy(y)); ctx.stroke(); }
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,.16)";
+  ctx.font = "600 10px ui-monospace,monospace";
+  ctx.translate(sx(6), sy(H*0.5));
+  ctx.rotate(-Math.PI/2);
+  ctx.textAlign = "center";
+  ctx.fillText("↑ LOSS", 0, 0);
+  ctx.restore();
+  ctx.fillStyle = "rgba(255,255,255,.16)";
+  ctx.font = "600 10px ui-monospace,monospace";
+  ctx.textAlign = "right";
+  ctx.fillText("PARAMETER θ →", sx(W-14), sy(8));
+}
+
+function drawZones(L){
+  for (const z of L.zones){
+    const g = ctx.createLinearGradient(0, sy(H), 0, sy(0));
+    if (z.type === "sand"){ g.addColorStop(0,"rgba(240,201,135,.035)"); g.addColorStop(1,"rgba(240,201,135,.17)"); }
+    else { g.addColorStop(0,"rgba(143,216,255,.035)"); g.addColorStop(1,"rgba(143,216,255,.17)"); }
+    ctx.fillStyle = g;
+    ctx.fillRect(sx(z.x0), 0, (z.x1-z.x0)*SC, CH);
+    ctx.fillStyle = z.type==="sand" ? "rgba(240,201,135,.75)" : "rgba(143,216,255,.75)";
+    ctx.font = "600 10px ui-monospace,monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(z.type==="sand" ? "SADDLE · 沙地" : "ICE · 冰面", sx((z.x0+z.x1)/2), sy(H-22));
+  }
+}
+
+function terrainPath(L){
+  ctx.beginPath();
+  ctx.moveTo(sx(0), sy(heightAt(L,0)));
+  for (let x=2; x<=W; x+=2) ctx.lineTo(sx(x), sy(heightAt(L,x)));
+  return ctx;
+}
+
+function drawTerrain(L){
+  terrainPath(L);
+  ctx.lineTo(sx(W), CH+4); ctx.lineTo(sx(0), CH+4); ctx.closePath();
+  const g = ctx.createLinearGradient(0, sy(H), 0, CH);
+  g.addColorStop(0,"#243057"); g.addColorStop(.5,"#1a2342"); g.addColorStop(1,"#0f1530");
+  ctx.fillStyle = g; ctx.fill();
+
+  // surface highlight, tinted by zone
+  ctx.lineWidth = 3; ctx.lineCap = "round";
+  for (let x=0; x<W; x+=4){
+    const z = zoneAt(L,x);
+    ctx.strokeStyle = z==="sand" ? "#f0c987" : z==="ice" ? "#8fd8ff" : "#5ee0c0";
+    ctx.globalAlpha = z==="normal" ? .55 : .85;
+    ctx.beginPath();
+    ctx.moveTo(sx(x), sy(heightAt(L,x)));
+    ctx.lineTo(sx(x+4), sy(heightAt(L,x+4)));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawGoal(){
+  const gx = S.goal.x, gh = S.goal.h;
+  const pulse = 0.5 + 0.5*Math.sin(S.t*3);
+  // basin glow
+  const rg = ctx.createRadialGradient(sx(gx), sy(gh), 2, sx(gx), sy(gh), 70*SC);
+  rg.addColorStop(0, `rgba(255,180,84,${.30+.12*pulse})`);
+  rg.addColorStop(1, "rgba(255,180,84,0)");
+  ctx.fillStyle = rg;
+  ctx.beginPath(); ctx.arc(sx(gx), sy(gh), 70*SC, 0, 7); ctx.fill();
+  // hole
+  ctx.fillStyle = "rgba(6,9,20,.85)";
+  ctx.beginPath(); ctx.ellipse(sx(gx), sy(gh), 16*SC, 5*SC, 0, 0, 7); ctx.fill();
+  // pole + flag
+  ctx.strokeStyle = "#e8edf7"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(sx(gx), sy(gh)); ctx.lineTo(sx(gx), sy(gh+62)); ctx.stroke();
+  ctx.fillStyle = "#ffb454";
+  ctx.beginPath();
+  ctx.moveTo(sx(gx), sy(gh+62));
+  ctx.lineTo(sx(gx)+34*SC + 4*SC*Math.sin(S.t*2.4), sy(gh+50));
+  ctx.lineTo(sx(gx), sy(gh+38));
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "rgba(255,180,84,.9)";
+  ctx.font = "600 10px ui-monospace,monospace"; ctx.textAlign = "center";
+  ctx.fillText("GLOBAL MIN", sx(gx), sy(gh+74));
+}
+
+function drawLocals(){
+  ctx.font = "600 9px ui-monospace,monospace"; ctx.textAlign = "center";
+  for (const m of S.locals){
+    ctx.strokeStyle = "rgba(255,107,122,.45)";
+    ctx.setLineDash([3,4]); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(sx(m.x), sy(m.h)); ctx.lineTo(sx(m.x), sy(m.h+34)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255,107,122,.6)";
+    ctx.fillText("local min", sx(m.x), sy(m.h+40));
+  }
+}
+
+function drawBanner(){
+  if (S.banner <= 0) return;
+  const a = Math.min(1, S.banner/0.6) * Math.min(1, (2.6-S.banner)/0.25);
+  ctx.textAlign = "center";
+  ctx.fillStyle = `rgba(255,255,255,${a})`;
+  ctx.font = "600 30px Georgia,serif";
+  ctx.fillText(`${S.li+1}. ${S.L.name}`, CW/2, CH*0.30);
+  ctx.fillStyle = `rgba(139,151,180,${a})`;
+  ctx.font = "600 13px ui-monospace,monospace";
+  ctx.fillText(`${S.L.sub}   ·   PAR ${S.L.par}`, CW/2, CH*0.30 + 26);
+}
+
+function drawAnneal(bp){
+  if (!S.moving || S.shotT <= ANNEAL_AFTER) return;
+  const a = Math.min(1, (S.shotT-ANNEAL_AFTER)*1.5);
+  ctx.fillStyle = `rgba(255,180,84,${a*.9})`;
+  ctx.font = "600 11px ui-monospace,monospace"; ctx.textAlign = "center";
+  ctx.fillText("lr decay ↓", bp.px, bp.py - 26);
+}
+
+function drawTrail(){
+  for (const p of S.trail){
+    if (p.a <= 0) continue;
+    ctx.fillStyle = `rgba(94,224,192,${p.a*0.5})`;
+    ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y)-6*SC, 2.4*SC*p.a, 0, 7); ctx.fill();
+  }
+}
+
+function drawBall(){
+  const L = S.L, h = heightAt(L, S.x), m = slopeAt(L, S.x);
+  const inv = 1/Math.sqrt(1+m*m);
+  const nx = -m*inv, ny = inv;              // surface normal
+  const r = 12;
+  const bx = S.x + nx*r, by = h + ny*r;
+  const px = sx(bx), py = sy(by);
+
+  // downhill gradient arrow (teaching aid)
+  if (!S.moving && !S.done){
+    const dir = m > 0 ? -1 : 1;
+    const len = Math.min(90, 22 + Math.abs(m)*90);
+    ctx.strokeStyle = "rgba(255,255,255,.30)"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx(S.x + dir*20), sy(heightAt(L,S.x+dir*20)+18));
+    ctx.lineTo(sx(S.x + dir*len), sy(heightAt(L,S.x+dir*len)+18));
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,.30)";
+    const tipx = sx(S.x+dir*len), tipy = sy(heightAt(L,S.x+dir*len)+18);
+    ctx.beginPath();
+    ctx.moveTo(tipx, tipy);
+    ctx.lineTo(tipx - dir*9, tipy-5);
+    ctx.lineTo(tipx - dir*9, tipy+5);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.35)";
+    ctx.font = "600 9px ui-monospace,monospace"; ctx.textAlign = "center";
+    ctx.fillText("−∇L", (px+tipx)/2, tipy-12);
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(94,224,192,.65)"; ctx.shadowBlur = 18;
+  const g = ctx.createRadialGradient(px-3*SC, py-4*SC, 1, px, py, r*SC);
+  g.addColorStop(0,"#ffffff"); g.addColorStop(.45,"#7ff0d2"); g.addColorStop(1,"#1c9f85");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(px, py, r*SC, 0, 7); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = "rgba(4,36,29,.75)";
+  ctx.font = `700 ${Math.max(8, 10*SC)}px ui-monospace,monospace`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText("θ", px, py+0.5);
+  ctx.textBaseline = "alphabetic";
+  return {px, py};
+}
+
+function drawAim(bp){
+  if (!S.charging || S.charge < 8) return;
+  const p = Math.min(S.charge, MAXP), t = p/MAXP;
+  const len = 40 + t*150;
+  const x2 = bp.px + S.chargeDir*len, y2 = bp.py - 16 - t*26;
+  ctx.strokeStyle = `rgba(255,180,84,${.55+.4*t})`;
+  ctx.lineWidth = 3 + 3*t; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(bp.px, bp.py-8); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.fillStyle = `rgba(255,180,84,${.6+.4*t})`;
+  ctx.beginPath();
+  ctx.moveTo(x2 + S.chargeDir*12, y2 - 3);
+  ctx.lineTo(x2 - S.chargeDir*4, y2 - 11);
+  ctx.lineTo(x2 - S.chargeDir*4, y2 + 8);
+  ctx.closePath(); ctx.fill();
+  // power bar
+  const bw = 150, bx = bp.px - bw/2, by = bp.py + 26;
+  ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(bx, by, bw, 8);
+  ctx.fillStyle = t > .85 ? "#ff6b7a" : "#ffb454"; ctx.fillRect(bx, by, bw*t, 8);
+  ctx.fillStyle = "rgba(255,255,255,.75)";
+  ctx.font = "600 10px ui-monospace,monospace"; ctx.textAlign = "center";
+  ctx.fillText("lr = " + (t).toFixed(2), bp.px, by + 22);
+}
+
+function drawSparks(){
+  for (const p of S.sparks){
+    ctx.globalAlpha = Math.max(0, p.life*1.6);
+    ctx.fillStyle = p.c;
+    ctx.beginPath(); ctx.arc(sx(p.x), sy(p.y)+ -8*SC, 2.2*SC, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function render(){
+  ctx.save();
+  if (S.shake > 0) ctx.translate((Math.random()-.5)*S.shake, (Math.random()-.5)*S.shake);
+  drawSky();
+  drawZones(S.L);
+  drawTerrain(S.L);
+  drawGoal();
+  drawLocals();
+  drawTrail();
+  drawSparks();
+  const bp = drawBall();
+  drawAim(bp);
+  drawAnneal(bp);
+  drawBanner();
+  ctx.restore();
+}
+
+/* ---------- HUD & overlays ---------- */
+const $ = id => document.getElementById(id);
+function syncHUD(){
+  $("hLevel").textContent = (S.li+1) + "/" + LEVELS.length;
+  $("hSteps").textContent = S.steps + " / " + S.L.par;
+  $("hLoss").textContent = heightAt(S.L, S.x).toFixed(0);
+  const b = S.best[S.li];
+  $("hBest").textContent = b ? b + " 步" : "—";
+}
+function hideAll(){
+  for (const o of ["ovHelp","ovLevels","ovWin"]) $(o).classList.remove("on");
+}
+function show(id){ $(id).classList.add("on"); }
+
+function win(){
+  S.done = true;
+  [0,1,2].forEach((k,i)=>setTimeout(()=>beep([660,880,1320][i], .35, "sine", .06), i*130));
+  const st = S.steps <= S.L.par ? 3 : S.steps <= S.L.par+1 ? 2 : 1;
+  const prev = S.best[S.li];
+  if (!prev || S.steps < prev){ S.best[S.li] = S.steps; store.set("llg_best", JSON.stringify(S.best)); }
+  if (S.li+1 > S.unlocked){ S.unlocked = S.li+1; store.set("llg_unlocked", S.unlocked); }
+  $("winStars").innerHTML = [0,1,2].map(i => i<st ? "★" : '<span class="off">★</span>').join("");
+  const last = S.li === LEVELS.length-1;
+  $("winTitle").textContent = last ? "全局收敛 🎉" : (S.steps <= S.L.par ? "漂亮的收敛！" : "收敛了");
+  $("winMsg").textContent = last
+    ? `你用 ${S.steps} 步通关了最后一关。你已经比 Adam 更懂调学习率了。`
+    : `用了 ${S.steps} 步（par ${S.L.par}），最终 loss = ${S.goal.h.toFixed(0)}。`;
+  $("bNext").textContent = last ? "回到关卡表" : "下一关";
+  setTimeout(()=>show("ovWin"), 500);
+  for (let i=0;i<40;i++){
+    S.sparks.push({x:S.goal.x + (Math.random()-.5)*60, y:S.goal.h+10,
+      vx:(Math.random()-.5)*220, vy:120+Math.random()*260, life:.8+Math.random()*.8,
+      c: ["#ffb454","#5ee0c0","#ffffff"][i%3]});
+  }
+}
+
+function buildLevels(){
+  const g = $("lvGrid"); g.innerHTML = "";
+  LEVELS.forEach((L,i)=>{
+    const locked = i > S.unlocked;
+    const b = document.createElement("button");
+    b.className = "lv" + (locked ? " locked" : "");
+    const best = S.best[i];
+    b.innerHTML = `<span class="n">LEVEL ${i+1} · PAR ${L.par}</span>
+      <span class="t">${L.name}</span>
+      <span class="s">${locked ? "🔒 未解锁" : (best ? "最佳 "+best+" 步" : L.sub)}</span>`;
+    if (!locked) b.onclick = () => loadLevel(i);
+    g.appendChild(b);
+  });
+}
+
+/* ---------- input ---------- */
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  if (S.moving || S.done) return;
+  cv.setPointerCapture(e.pointerId);
+  drag = {x:e.clientX, y:e.clientY};
+  S.charging = true; S.charge = 0; S.chargeSrc = "drag";
+});
+cv.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = drag.x - e.clientX;
+  S.chargeDir = dx >= 0 ? 1 : -1;
+  S.charge = Math.min(MAXP, Math.abs(dx) / Math.max(1, CW*0.30) * MAXP);
+});
+function endDrag(){
+  if (!drag) return;
+  drag = null; S.charging = false;
+  if (S.charge > 25) shoot(S.charge, S.chargeDir);
+  S.charge = 0;
+}
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+
+let keyHeld = null;
+addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "r" || e.key === "R"){ loadLevel(S.li); return; }
+  if (e.key === "Escape"){ hideAll(); return; }
+  if (S.moving || S.done || drag) return;
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight"){
+    e.preventDefault();
+    if (keyHeld !== e.key){ keyHeld = e.key; S.charging = true; S.charge = 0; }
+    S.chargeDir = e.key === "ArrowRight" ? 1 : -1;
+  }
+});
+addEventListener("keyup", e => {
+  if (e.key === keyHeld){
+    keyHeld = null; S.charging = false;
+    if (S.charge > 25) shoot(S.charge, S.chargeDir);
+    S.charge = 0;
+  }
+});
+
+$("bRestart").onclick = () => loadLevel(S.li);
+$("bLevels").onclick = () => { buildLevels(); hideAll(); show("ovLevels"); };
+$("bLevelsClose").onclick = hideAll;
+$("bHelp").onclick = () => { hideAll(); show("ovHelp"); };
+$("bHelpClose").onclick = hideAll;
+$("bStart").onclick = () => { hideAll(); loadLevel(S.li); };
+$("bRetry").onclick = () => loadLevel(S.li);
+$("bNext").onclick = () => {
+  if (S.li === LEVELS.length-1){ buildLevels(); hideAll(); show("ovLevels"); }
+  else loadLevel(S.li+1);
+};
+
+/* ---------- main loop ---------- */
+addEventListener("resize", resize);
+resize();
+const hashLv = (location.hash.match(/lv=(\d+)/) || [])[1];
+const startLv = hashLv ? Math.min(LEVELS.length, Math.max(1, +hashLv)) - 1 : 0;
+if (startLv > S.unlocked){ S.unlocked = startLv; store.set("llg_unlocked", S.unlocked); }
+loadLevel(startLv);
+show("ovHelp");
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.033, (now-last)/1000);
+  last = now;
+  if (keyHeld && S.charging) S.charge = Math.min(MAXP, S.charge + dt*MAXP*0.95);
+  step(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
