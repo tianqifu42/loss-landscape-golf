@@ -102,6 +102,9 @@
   .tag{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--accent);border:1px solid rgba(94,224,192,.35);border-radius:99px;padding:3px 9px;margin-bottom:10px}
   .big{font:600 44px/1 ui-monospace,monospace;color:var(--accent)}
+  .shot{width:100%;border-radius:12px;border:1px solid var(--line);display:block;margin:6px 0 2px}
+  .toast{font-size:13px;color:var(--accent);margin-left:auto;opacity:0;transition:.2s opacity}
+  .toast.on{opacity:1}
   @media (max-width:680px){
     .brand{font-size:14px}
     header{gap:9px;padding:8px 10px}
@@ -179,6 +182,22 @@
         <div class="row" style="justify-content:center">
           <button class="primary" id="bNext">Next level</button>
           <button id="bRetry">Retry</button>
+          <button id="bShareWin" style="display:none">Share result</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovShare">
+      <div class="card">
+        <h2>Share your run</h2>
+        <p>Anyone opening the challenge link gets the exact same holes, in the same order.</p>
+        <img class="shot" id="shareImg" alt="score card">
+        <div class="row">
+          <button class="primary" id="bCopyLink">Copy challenge link</button>
+          <button id="bCopyImg">Copy image</button>
+          <button id="bSaveImg">Save PNG</button>
+          <button id="bShareClose">Close</button>
+          <span class="toast" id="shareToast">Copied</span>
         </div>
       </div>
     </div>
@@ -192,6 +211,7 @@
         <p id="overMsg">Best run: 0 holes.</p>
         <div class="row" style="justify-content:center">
           <button class="primary" id="bAgain">Run again</button>
+          <button id="bShareRun">Share result</button>
           <button id="bOverLevels">Back to levels</button>
         </div>
       </div>
@@ -761,7 +781,7 @@ function syncHUD(){
   $("hLoss").textContent = heightAt(S.L, S.x).toFixed(0);
 }
 function hideAll(){
-  for (const o of ["ovHelp","ovLevels","ovWin","ovOver"]) $(o).classList.remove("on");
+  for (const o of ["ovHelp","ovLevels","ovWin","ovOver","ovShare"]) $(o).classList.remove("on");
 }
 function show(id){ $(id).classList.add("on"); }
 
@@ -804,6 +824,7 @@ function win(){
     ? `You finished the last hole in ${S.steps} ${S.steps===1?"step":"steps"}. Endless mode is waiting.`
     : `Sunk in ${S.steps} ${S.steps===1?"step":"steps"} (par ${S.L.par}). Final loss ${S.goal.h.toFixed(0)}.`;
   $("bNext").textContent = last ? "Try Endless" : "Next level";
+  $("bShareWin").style.display = last ? "" : "none";
   setTimeout(()=>show("ovWin"), 500);
 }
 
@@ -834,6 +855,139 @@ function buildLevels(){
     ? `Procedurally generated holes, forever. Sinking a hole pays back par−1 strokes; run out and the run ends. Best run: ${S.endlessBest} ${S.endlessBest===1?"hole":"holes"}.`
     : "Procedurally generated holes, forever. You start with 8 strokes. Sinking a hole pays back par−1, so par play breaks even and every miss costs you. Run out and the run ends.";
 }
+
+/* ---------- share card ---------- */
+function shareURL(){
+  const base = location.origin + location.pathname;
+  return S.mode === "endless" ? base + "#endless=" + S.seed : base + "#lv=1";
+}
+function makeCard(){
+  const CWD = 1200, CHT = 630, c = document.createElement("canvas");
+  c.width = CWD; c.height = CHT;
+  const x = c.getContext("2d");
+
+  const bg = x.createLinearGradient(0,0,0,CHT);
+  bg.addColorStop(0,"#0a0f22"); bg.addColorStop(.55,"#111a35"); bg.addColorStop(1,"#16214a");
+  x.fillStyle = bg; x.fillRect(0,0,CWD,CHT);
+  x.strokeStyle = "rgba(255,255,255,.04)"; x.lineWidth = 1;
+  for (let y=60; y<CHT; y+=54){ x.beginPath(); x.moveTo(0,y); x.lineTo(CWD,y); x.stroke(); }
+
+  // terrain of the hole the run ended on
+  const L = S.L;
+  const tx = w => w * (CWD/W);
+  const ty = h => CHT - 26 - h * (312/H);
+  x.beginPath();
+  x.moveTo(tx(0), ty(heightAt(L,0)));
+  for (let w=4; w<=W; w+=4) x.lineTo(tx(w), ty(heightAt(L,w)));
+  x.lineTo(CWD, CHT); x.lineTo(0, CHT); x.closePath();
+  const tg = x.createLinearGradient(0, ty(H), 0, CHT);
+  tg.addColorStop(0,"#2b3865"); tg.addColorStop(1,"#131b3a");
+  x.fillStyle = tg; x.fill();
+  x.strokeStyle = "#5ee0c0"; x.lineWidth = 5; x.globalAlpha = .95;
+  x.beginPath();
+  x.moveTo(tx(0), ty(heightAt(L,0)));
+  for (let w=4; w<=W; w+=4) x.lineTo(tx(w), ty(heightAt(L,w)));
+  x.stroke(); x.globalAlpha = 1;
+
+  // flag at the global minimum
+  const gx = tx(S.goal.x), gy = ty(S.goal.h);
+  const rg = x.createRadialGradient(gx, gy, 2, gx, gy, 110);
+  rg.addColorStop(0,"rgba(255,180,84,.34)"); rg.addColorStop(1,"rgba(255,180,84,0)");
+  x.fillStyle = rg; x.beginPath(); x.arc(gx, gy, 110, 0, 7); x.fill();
+  x.strokeStyle = "#e8edf7"; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(gx, gy); x.lineTo(gx, gy-62); x.stroke();
+  x.fillStyle = "#ffb454";
+  x.beginPath(); x.moveTo(gx, gy-62); x.lineTo(gx+38, gy-50); x.lineTo(gx, gy-38); x.closePath(); x.fill();
+
+  // the ball, resting where the run ended
+  const bxp = tx(S.x), byp = ty(heightAt(L, S.x)) - 15;
+  x.save();
+  x.shadowColor = "rgba(94,224,192,.8)"; x.shadowBlur = 26;
+  const bgd = x.createRadialGradient(bxp-5, byp-6, 1, bxp, byp, 17);
+  bgd.addColorStop(0,"#ffffff"); bgd.addColorStop(.45,"#7ff0d2"); bgd.addColorStop(1,"#1c9f85");
+  x.fillStyle = bgd; x.beginPath(); x.arc(bxp, byp, 17, 0, 7); x.fill();
+  x.restore();
+
+  // scrim so the copy stays readable
+  const sl = x.createLinearGradient(0,0,CWD,0);
+  sl.addColorStop(0,"rgba(8,12,26,.96)"); sl.addColorStop(.42,"rgba(8,12,26,.86)");
+  sl.addColorStop(.72,"rgba(8,12,26,.25)"); sl.addColorStop(1,"rgba(8,12,26,0)");
+  x.fillStyle = sl; x.fillRect(0,0,CWD,CHT);
+  const st = x.createLinearGradient(0,0,0,300);
+  st.addColorStop(0,"rgba(8,12,26,.9)"); st.addColorStop(1,"rgba(8,12,26,0)");
+  x.fillStyle = st; x.fillRect(0,0,CWD,300);
+
+  const endless = S.mode === "endless";
+  x.textAlign = "left";
+  x.fillStyle = "#5ee0c0";
+  x.font = "600 20px ui-monospace,monospace";
+  x.fillText(endless ? "ENDLESS MODE" : "CAMPAIGN", 72, 80);
+  x.fillStyle = "#e8edf7";
+  x.font = "600 54px Georgia,serif";
+  x.fillText("Loss Landscape Golf", 72, 142);
+  x.fillStyle = "#8b97b4";
+  x.font = "400 22px 'Segoe UI',system-ui,sans-serif";
+  x.fillText("You are the optimizer. Sink the ball into the global minimum.", 72, 182);
+
+  const big = endless ? String(S.cleared) : String(Object.values(S.best).reduce((a,b)=>a+b,0));
+  const label = endless ? "HOLES CLEARED" : "TOTAL STEPS · ALL 6 LEVELS";
+  x.fillStyle = "#5ee0c0";
+  x.font = "700 132px ui-monospace,monospace";
+  x.fillText(big, 72, 336);
+  const bw = x.measureText(big).width;
+  x.fillStyle = "#8b97b4";
+  x.font = "600 20px ui-monospace,monospace";
+  x.fillText(label, 88 + bw, 336);
+  if (endless){
+    x.fillStyle = "#ffb454";
+    x.font = "600 26px ui-monospace,monospace";
+    x.fillText("SEED " + S.seed + "   ·   can you beat it?", 74, 386);
+  }
+
+  x.fillStyle = "rgba(232,237,247,.75)";
+  x.font = "600 22px ui-monospace,monospace";
+  x.fillText("tianqifu380.github.io/loss-landscape-golf", 72, CHT - 34);
+  return c;
+}
+let cardBlobURL = null;
+function openShare(){
+  const c = makeCard();
+  $("shareImg").src = c.toDataURL("image/png");
+  c.toBlob(b => {
+    if (cardBlobURL) URL.revokeObjectURL(cardBlobURL);
+    cardBlobURL = b ? URL.createObjectURL(b) : null;
+    window.__cardBlob = b;
+  });
+  hideAll(); show("ovShare");
+}
+function toast(msg){
+  const t = $("shareToast");
+  t.textContent = msg; t.classList.add("on");
+  setTimeout(()=>t.classList.remove("on"), 1600);
+}
+$("bShareRun").onclick = openShare;
+$("bShareWin").onclick = openShare;
+$("bShareClose").onclick = () => { hideAll(); show(S.mode === "endless" ? "ovOver" : "ovWin"); };
+$("bCopyLink").onclick = async () => {
+  const url = shareURL();
+  try{ await navigator.clipboard.writeText(url); toast("Link copied"); }
+  catch(e){ prompt("Copy this link:", url); }
+};
+$("bSaveImg").onclick = () => {
+  const a = document.createElement("a");
+  a.href = cardBlobURL || $("shareImg").src;
+  a.download = S.mode === "endless"
+    ? `loss-landscape-golf-${S.cleared}-holes-seed-${S.seed}.png`
+    : "loss-landscape-golf-campaign.png";
+  a.click();
+};
+$("bCopyImg").onclick = async () => {
+  try{
+    if (!window.ClipboardItem || !navigator.clipboard.write) throw new Error("unsupported");
+    await navigator.clipboard.write([new ClipboardItem({"image/png": window.__cardBlob})]);
+    toast("Image copied");
+  }catch(e){ toast("Use Save PNG instead"); }
+};
 
 /* ---------- input ---------- */
 let drag = null;

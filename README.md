@@ -40,6 +40,10 @@ As the hole number climbs, decoy basins get deeper, gradient noise rises, sand a
 
 ![endless](endless.png)
 
+## Share card
+
+When a run ends (or you finish the campaign) hit **Share result** to get a 1200×630 PNG with your score, the seed and the hole you died on — plus a one-click challenge link that hands your friend the exact same holes in the same order.
+
 ## Deep links
 
 - `#lv=3` jumps straight to campaign level 3
