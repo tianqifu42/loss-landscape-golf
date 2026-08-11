@@ -1,45 +1,55 @@
-# Loss Landscape Golf · 损失地形高尔夫
+# Loss Landscape Golf
 
-**你是优化器。** 屏幕上的曲线是一个损失函数，小球是参数。用尽量少的 step 把它送进**全局最小值**。
+**You are the optimizer.** The curve is a loss function, the ball is your parameter. Sink it into the **global minimum** in as few steps as you can.
 
-▶ **在线试玩：https://tianqifu380.github.io/loss-landscape-golf/**
+▶ **Play: https://tianqifu380.github.io/loss-landscape-golf/**
 
-![gameplay](screenshot.png)
+![campaign](screenshot.png)
 
-## 玩法
+## Controls
 
-- 从小球往反方向拖拽蓄力（像弹弓），松手发射；或按住 `←` / `→` 蓄力，松手发射，`R` 重来。
-- 蓄力大小 = 这一步的 **learning rate**：太小翻不过山脊，太大冲过全局最优。
-- 每关有 par（标准步数），少于等于 par 拿三星。
+- Drag away from the ball like a slingshot and release to shoot.
+- Or hold `←` / `→` to charge and release. `R` restarts.
+- Charge power *is* your **learning rate**: too small won't clear the ridge, too large overshoots the hole.
 
-## 地形机关
+## Terrain
 
-| 机关 | 物理 | 对应的训练经验 |
+| Feature | Physics | What it feels like in training |
 | --- | --- | --- |
-| 局部最小值 | 普通阻尼的坑 | 看着舒服，但不是答案，得靠动量冲出去 |
-| 鞍点沙地 | 阻尼 ×2.7，坡度极缓 | 梯度消失，陷进去就寸步难行 |
-| 冰面 | 阻尼 ×0.36 | 学习率过大，来回震荡收不住 |
-| lr decay | 小球滚过 2.4 秒后阻尼指数上升 | 退火 / 学习率衰减，保证收敛 |
+| Local minimum | ordinary basin | Comfortable, but wrong — you need momentum to escape |
+| Saddle sand | damping ×2.7, near-flat slope | Vanishing gradient: get stuck and you barely move |
+| Ice | damping ×0.36 | Learning rate too high: the ball oscillates and won't settle |
+| lr decay | damping ramps up after 2.4 s of rolling | Annealing, so every shot is guaranteed to converge |
 
-## 关卡
+## Modes
 
-| # | 名字 | par | 主题 |
+**Campaign** — six hand-built holes.
+
+| # | Name | Par | Theme |
 | --- | --- | --- | --- |
-| 1 | Warm-up | 2 | 感受梯度 |
-| 2 | Local Minima | 3 | 三个坑，只有一个对 |
-| 3 | Saddle Sand | 3 | 冲过梯度消失的平原 |
-| 4 | Ice Rink | 3 | 学习率过大的滋味 |
-| 5 | Noisy Gradients | 3 | 到处都是小坑 |
-| 6 | The Boss | 4 | 沙、冰、噪声与假最优 |
+| 1 | Warm-up | 2 | feel the gradient |
+| 2 | Local Minima | 3 | three basins, one answer |
+| 3 | Saddle Sand | 3 | cross the flat plain |
+| 4 | Ice Rink | 3 | learning rate too high |
+| 5 | Noisy Gradients | 3 | tiny traps everywhere |
+| 6 | The Boss | 4 | sand, ice, noise, decoys |
 
-用 `#lv=3` 这样的 hash 可以直接跳到某一关，例如
-`https://tianqifu380.github.io/loss-landscape-golf/#lv=6`。
+**Endless** — procedurally generated holes, forever. You start with 8 strokes; sinking a hole pays back `par − 1`, so par play breaks even and every miss drains the budget. Run out and the run ends. Score is holes cleared.
 
-## 技术
+As the hole number climbs, decoy basins get deeper, gradient noise rises, sand and ice show up more often, the cup shrinks from 42 to 22 units, and roughly a third of holes tee off from the right instead. Every generated hole is verified solvable in at most two shots before you see it, so a run never ends on an impossible layout.
 
-单个 `index.html`，零依赖、零构建、零网络请求：Canvas 2D 渲染，Web Audio 音效，`localStorage` 存进度（隐私模式下自动降级）。
+![endless](endless.png)
 
-物理：小球被约束在曲线上，切向加速度 `a = -g·sin θ - k·v`，其中 `θ = arctan(dL/dθ)`，`k` 由所处地形区域决定；每帧 4 次子步积分。所有 6 关都用一个离线求解器做过可解性验证（最优解 1–2 杆）。
+## Deep links
+
+- `#lv=3` jumps straight to campaign level 3
+- `#endless` starts a random endless run, `#endless=61109` replays a specific seed
+
+## Technical notes
+
+One `index.html`, ~35 KB, no dependencies, no build step, no network calls: Canvas 2D rendering, Web Audio blips, `localStorage` for progress (degrades gracefully in private mode).
+
+The ball is constrained to the curve, so the tangential acceleration is `a = -g·sin θ - k·v` where `θ = arctan(dL/dθ)` and `k` comes from the terrain zone, integrated with four substeps per frame. The same physics runs headless as a small solver: campaign pars were tuned against it, and Endless uses it at generation time to rate each hole and reject unsolvable ones.
 
 ## License
 
