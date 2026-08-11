@@ -709,6 +709,15 @@ if (startLv > S.unlocked){ S.unlocked = startLv; store.set("llg_unlocked", S.unl
 loadLevel(startLv);
 show("ovHelp");
 
+addEventListener("hashchange", () => {
+  const m = (location.hash.match(/lv=(\d+)/) || [])[1];
+  if (!m) return;
+  const i = Math.min(LEVELS.length, Math.max(1, +m)) - 1;
+  if (i === S.li) return;
+  if (i > S.unlocked){ S.unlocked = i; store.set("llg_unlocked", S.unlocked); }
+  loadLevel(i);
+});
+
 let last = performance.now();
 function frame(now){
   const dt = Math.min(0.033, (now-last)/1000);
