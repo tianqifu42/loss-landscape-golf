@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Loss Landscape Golf</title>
 <meta name="description" content="You are the optimizer. Sink the ball into the global minimum in as few steps as possible.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Loss Landscape Golf">
+<meta property="og:description" content="Golf on a loss function. The ball is your parameter, charge power is your learning rate. Campaign, a daily hole, and endless procedural holes.">
+<meta property="og:url" content="https://tianqifu380.github.io/loss-landscape-golf/">
+<meta property="og:image" content="https://tianqifu380.github.io/loss-landscape-golf/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Loss Landscape Golf">
+<meta name="twitter:description" content="Golf on a loss function. The ball is your parameter, charge power is your learning rate.">
+<meta name="twitter:image" content="https://tianqifu380.github.io/loss-landscape-golf/social.png">
 <style>
   :root{
     --bg:#0b1020;
@@ -166,6 +175,10 @@
         <h2>Levels</h2>
         <p>Par is the target number of steps. Match it or beat it for three stars.</p>
         <div class="lv-grid" id="lvGrid"></div>
+        <button class="endless-card" id="bDaily">
+          <span class="t">☀ &nbsp;Daily Hole</span>
+          <span class="d" id="dailyDesc">One hole a day, the same one for everyone on the planet. Unlimited strokes — the score is how few you needed.</span>
+        </button>
         <button class="endless-card" id="bEndless">
           <span class="t">∞ &nbsp;Endless Mode</span>
           <span class="d" id="endlessDesc">Procedurally generated holes, forever. You start with 8 strokes. Sinking a hole pays back par−1, so par play breaks even and every miss costs you. Run out and the run ends.</span>
@@ -373,6 +386,16 @@ function buildHole(n, seed, salt){
   }
   return L;
 }
+/* Every basin must be leavable with one max-power shot, or the ball can softlock. */
+function escapable(L){
+  const g = findGlobalMin(L);
+  for (const m of findLocalMins(L, g.x)){
+    let ok = false;
+    for (const d of [1,-1]) if (Math.abs(simShot(L, m.x, MAXP*d) - m.x) > 60){ ok = true; break; }
+    if (!ok) return false;
+  }
+  return true;
+}
 function genHole(n, seed){
   let best = null;
   for (let salt = 0; salt < 14; salt++){
@@ -380,6 +403,7 @@ function genHole(n, seed){
     const g = findGlobalMin(L);
     if (Math.abs(g.x - L.wells[0].c) > 70) continue;        // decoy stole the global min
     if (Math.abs(g.x - L.start) < 220) continue;            // too close to the tee
+    if (!escapable(L)) continue;
     const m = minShots(L, g.x);
     if (m <= 3){ L.par = Math.min(5, m + 1); return L; }
     if (!best) best = L;
@@ -422,6 +446,8 @@ const S = {
   unlocked: +(store.get("llg_unlocked","0")) || 0,
   endlessBest: +(store.get("llg_endless_best","0")) || 0,
   hole: 1, budget: START_BUDGET, cleared: 0, seed: 1, awaitingNext: false,
+  dayKey: 0,
+  daily: (()=>{ try{ return JSON.parse(store.get("llg_daily","{}")); }catch(e){ return {}; } })(),
   t: 0, shake: 0, shotT: 0, locals: [], banner: 0, flash: null, sound: true
 };
 
@@ -448,6 +474,24 @@ function startEndless(seed){
   S.hole = 1; S.budget = START_BUDGET; S.cleared = 0;
   beginLevel(genHole(1, S.seed));
   try{ history.replaceState(null, "", "#endless=" + S.seed); }catch(e){}
+}
+/* ---------- daily hole: same landscape worldwide, one per UTC day ---------- */
+function dayKey(d){
+  d = d || new Date();
+  return d.getUTCFullYear()*10000 + (d.getUTCMonth()+1)*100 + d.getUTCDate();
+}
+function dayLabel(k){
+  const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return M[Math.floor(k/100)%100 - 1] + " " + (k%100) + ", " + Math.floor(k/10000);
+}
+const DAILY_N = 8;   // difficulty slot: sand + ice are in play, cup radius 36
+function startDaily(){
+  S.mode = "daily";
+  S.dayKey = dayKey();
+  S.seed = S.dayKey;
+  beginLevel(genHole(DAILY_N, S.dayKey));
+  S.L.name = "Daily Hole";
+  try{ history.replaceState(null, "", "#daily"); }catch(e){}
 }
 function nextHole(){
   S.hole++;
@@ -768,6 +812,15 @@ function syncHUD(){
     $("hBest").textContent = S.cleared + " / " + S.endlessBest;
     $("hBestL").textContent = "Cleared / best";
     $("bRestart").textContent = "New run";
+  } else if (S.mode === "daily"){
+    $("hLevel").textContent = "Daily";
+    $("hLevelL").textContent = dayLabel(S.dayKey);
+    $("hSteps").textContent = S.steps;
+    $("hStepsL").textContent = "Steps";
+    const d = S.daily[S.dayKey];
+    $("hBest").textContent = d ? d + (d===1?" step":" steps") : "—";
+    $("hBestL").textContent = "Best today";
+    $("bRestart").textContent = "Replay";
   } else {
     $("hLevel").textContent = (S.li+1) + "/" + LEVELS.length;
     $("hLevelL").textContent = "Level";
@@ -813,6 +866,23 @@ function win(){
     return;
   }
 
+  if (S.mode === "daily"){
+    const prevD = S.daily[S.dayKey];
+    const pb = !prevD || S.steps < prevD;
+    if (pb){ S.daily = {[S.dayKey]: S.steps}; store.set("llg_daily", JSON.stringify(S.daily)); }
+    const dst = S.steps <= 2 ? 3 : S.steps <= 4 ? 2 : 1;
+    $("winStars").innerHTML = [0,1,2].map(i => i<dst ? "★" : '<span class="off">★</span>').join("");
+    $("winTitle").textContent = S.steps === 1 ? "One-shot convergence" : "Daily hole solved";
+    $("winMsg").textContent = `${dayLabel(S.dayKey)} — sunk in ${S.steps} ${S.steps===1?"step":"steps"}.` +
+      (pb ? " Your best today." : ` Your best today: ${prevD}.`);
+    $("bNext").textContent = "Try Endless";
+    $("bRetry").textContent = "Replay today";
+    $("bShareWin").style.display = "";
+    syncHUD();
+    setTimeout(()=>show("ovWin"), 500);
+    return;
+  }
+
   const st = S.steps <= S.L.par ? 3 : S.steps <= S.L.par+1 ? 2 : 1;
   const prev = S.best[S.li];
   if (!prev || S.steps < prev){ S.best[S.li] = S.steps; store.set("llg_best", JSON.stringify(S.best)); }
@@ -824,6 +894,7 @@ function win(){
     ? `You finished the last hole in ${S.steps} ${S.steps===1?"step":"steps"}. Endless mode is waiting.`
     : `Sunk in ${S.steps} ${S.steps===1?"step":"steps"} (par ${S.L.par}). Final loss ${S.goal.h.toFixed(0)}.`;
   $("bNext").textContent = last ? "Try Endless" : "Next level";
+  $("bRetry").textContent = "Retry";
   $("bShareWin").style.display = last ? "" : "none";
   setTimeout(()=>show("ovWin"), 500);
 }
@@ -851,6 +922,10 @@ function buildLevels(){
     if (!locked) b.onclick = () => loadLevel(i);
     g.appendChild(b);
   });
+  const dToday = S.daily[dayKey()];
+  $("dailyDesc").textContent = dToday
+    ? `One hole a day, the same one for everyone on the planet. Unlimited strokes. Today (${dayLabel(dayKey())}) you are at ${dToday} ${dToday===1?"step":"steps"}.`
+    : `One hole a day, the same one for everyone on the planet. Unlimited strokes — the score is how few you needed. Today: ${dayLabel(dayKey())}.`;
   $("endlessDesc").textContent = S.endlessBest
     ? `Procedurally generated holes, forever. Sinking a hole pays back par−1 strokes; run out and the run ends. Best run: ${S.endlessBest} ${S.endlessBest===1?"hole":"holes"}.`
     : "Procedurally generated holes, forever. You start with 8 strokes. Sinking a hole pays back par−1, so par play breaks even and every miss costs you. Run out and the run ends.";
@@ -859,7 +934,9 @@ function buildLevels(){
 /* ---------- share card ---------- */
 function shareURL(){
   const base = location.origin + location.pathname;
-  return S.mode === "endless" ? base + "#endless=" + S.seed : base + "#lv=1";
+  if (S.mode === "endless") return base + "#endless=" + S.seed;
+  if (S.mode === "daily")   return base + "#daily";
+  return base + "#lv=1";
 }
 function makeCard(){
   const CWD = 1200, CHT = 630, c = document.createElement("canvas");
@@ -917,11 +994,12 @@ function makeCard(){
   st.addColorStop(0,"rgba(8,12,26,.9)"); st.addColorStop(1,"rgba(8,12,26,0)");
   x.fillStyle = st; x.fillRect(0,0,CWD,300);
 
-  const endless = S.mode === "endless";
+  const endless = S.mode === "endless", daily = S.mode === "daily";
   x.textAlign = "left";
   x.fillStyle = "#5ee0c0";
   x.font = "600 20px ui-monospace,monospace";
-  x.fillText(endless ? "ENDLESS MODE" : "CAMPAIGN", 72, 80);
+  x.fillText(daily ? "DAILY HOLE  ·  " + dayLabel(S.dayKey).toUpperCase()
+                   : endless ? "ENDLESS MODE" : "CAMPAIGN", 72, 80);
   x.fillStyle = "#e8edf7";
   x.font = "600 54px Georgia,serif";
   x.fillText("Loss Landscape Golf", 72, 142);
@@ -929,8 +1007,11 @@ function makeCard(){
   x.font = "400 22px 'Segoe UI',system-ui,sans-serif";
   x.fillText("You are the optimizer. Sink the ball into the global minimum.", 72, 182);
 
-  const big = endless ? String(S.cleared) : String(Object.values(S.best).reduce((a,b)=>a+b,0));
-  const label = endless ? "HOLES CLEARED" : "TOTAL STEPS · ALL 6 LEVELS";
+  const big = daily ? String(S.steps)
+            : endless ? String(S.cleared)
+            : String(Object.values(S.best).reduce((a,b)=>a+b,0));
+  const label = daily ? (S.steps===1 ? "STEP" : "STEPS") + " ON TODAY'S HOLE"
+              : endless ? "HOLES CLEARED" : "TOTAL STEPS · ALL 6 LEVELS";
   x.fillStyle = "#5ee0c0";
   x.font = "700 132px ui-monospace,monospace";
   x.fillText(big, 72, 336);
@@ -938,10 +1019,11 @@ function makeCard(){
   x.fillStyle = "#8b97b4";
   x.font = "600 20px ui-monospace,monospace";
   x.fillText(label, 88 + bw, 336);
-  if (endless){
+  if (endless || daily){
     x.fillStyle = "#ffb454";
     x.font = "600 26px ui-monospace,monospace";
-    x.fillText("SEED " + S.seed + "   ·   can you beat it?", 74, 386);
+    x.fillText(daily ? "SAME HOLE FOR EVERYONE TODAY   ·   beat it?"
+                     : "SEED " + S.seed + "   ·   can you beat it?", 74, 386);
   }
 
   x.fillStyle = "rgba(232,237,247,.75)";
@@ -978,6 +1060,8 @@ $("bSaveImg").onclick = () => {
   a.href = cardBlobURL || $("shareImg").src;
   a.download = S.mode === "endless"
     ? `loss-landscape-golf-${S.cleared}-holes-seed-${S.seed}.png`
+    : S.mode === "daily"
+    ? `loss-landscape-golf-daily-${S.dayKey}-${S.steps}-steps.png`
     : "loss-landscape-golf-campaign.png";
   a.click();
 };
@@ -1034,6 +1118,7 @@ addEventListener("keyup", e => {
 
 function restart(){
   if (S.mode === "endless") startEndless();
+  else if (S.mode === "daily") startDaily();
   else loadLevel(S.li);
 }
 
@@ -1043,8 +1128,9 @@ $("bLevelsClose").onclick = hideAll;
 $("bHelp").onclick = () => { hideAll(); show("ovHelp"); };
 $("bHelpClose").onclick = hideAll;
 $("bStart").onclick = hideAll;
-$("bRetry").onclick = () => loadLevel(S.li);
+$("bRetry").onclick = () => { if (S.mode === "daily") startDaily(); else loadLevel(S.li); };
 $("bEndless").onclick = () => { hideAll(); startEndless(); };
+$("bDaily").onclick = () => { hideAll(); startDaily(); };
 $("bAgain").onclick = () => { hideAll(); startEndless(); };
 $("bOverLevels").onclick = () => { buildLevels(); hideAll(); show("ovLevels"); };
 $("bNext").onclick = () => {
@@ -1058,6 +1144,10 @@ resize();
 
 function applyHash(initial){
   const h = location.hash;
+  if (/daily/.test(h)){
+    if (initial || S.mode !== "daily") startDaily();
+    return true;
+  }
   const em = h.match(/endless(?:=(\d+))?/);
   if (em){
     if (initial || S.mode !== "endless") startEndless(em[1] ? +em[1] : undefined);
